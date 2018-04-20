@@ -1,15 +1,15 @@
-function Ustruct = odflowspeed(waveH, waveDir, wavePeriod, waveDepth, ...
-                           depthVar, zBar, tidalElev, gammaBr, ...
-                           vAlong, vAdjust)
+function Ustruct = odflowspeed(waveH, waveDir, wavePeriod, waveDepth,...
+                               depthVar, zBar, tidalElev, gammaBr,...
+                               vAlong, vAdjust, ampCoeff)
 % ODFLOWSPEED computes parameterized offshore-directed flow speed.
-%  This function computes the parameterized the maximum offshore-directed
+%  This function computes the parameterized maximum offshore-directed
 %  flow speed (Moulton et al., 2016) resulting from waves incident on non-
 %  uniform bathymetry. It also returns the wave-breaking regime, sea-level
 %  difference, alongshore flow speed, and suppression factor.
 %
 %  Syntax: Ustruct = odflowspeed(waveH, waveDir, wavePeriod, waveDepth, ...
 %                            depthVar, zBar, tidalElev, gammaBr, ...
-%                            vAlong, vAdjust)
+%                            vAlong, vAdjust, ampCoeff)
 %
 %  Inputs:
 %     waveH - Wave height (m) at depth waveDepth
@@ -26,6 +26,8 @@ function Ustruct = odflowspeed(waveH, waveDir, wavePeriod, waveDepth, ...
 %                 bSlope - Approximate beach slope
 %     vAdjust - Option to adjust sensitivity to alongshore flow, 0 to 1
 %               (Beta in Moulton et al., 2016)
+%     ampCoeff - Coefficient controlling amplitude,
+%                Uoff=ampCoeff*sqrt(2*g*DeltaEta)*FV
 %
 %  Outputs:
 %     Ustruct - structure with fields:
@@ -38,11 +40,11 @@ function Ustruct = odflowspeed(waveH, waveDir, wavePeriod, waveDepth, ...
 %     VAlong - Alongshore flow speed
 %     Factor - Factor accounting for suppression of U by V, between 0 and 1
 %         (FV in Moulton et al., 2016)
+%     Inputs - All input fields
 %
-%  Subroutines: WAVESHOAL, FIND_C, FINDC0, FIND_L0, FIND_L, FIND_N
-%  MAT-files required: none
-
-% Melissa Moulton, Last updated: July 6, 2016
+%  Subroutines: WAVESHOAL
+%
+% Melissa Moulton, Last updated: April 19, 2018
 
 %% Constants
 
@@ -51,21 +53,29 @@ g=9.8; % m/s^2
 %% Compute depthBar and depthChan
 
 depthBar = tidalElev-zBar;
+depthBar(depthBar<0)=0; % If bar exposed, set depth to 0
 depthChan = depthBar+depthVar;
 
-%% Compute wave properties at breaking
+%% Exclude times with wave angles between 90 and 270 from analysis
+exind=intersect(find(abs(waveDir)>=90),find(abs(waveDir)<=270));
+waveDir(exind)=NaN;
 
-% Shoal the waves to breaking
-[waveH_Br, waveDepth_Br, waveDir_Br] = deal(NaN*waveH);
+%% Compute wave properties at breaking (add: and at bar crest)
+
+[waveH_Br, waveDepth_Br, waveDir_Br] = deal(NaN*ones(size(waveH)));
 
 for ii = 1:length(waveH)
     if ~isnan(wavePeriod(ii)+waveDepth(ii)+waveH(ii)+waveDir(ii))
-        wavestruct = waveshoal(wavePeriod(ii),waveDepth(ii),waveH(ii),waveDir(ii),gammaBr);
+        wavestruct = waveshoal(wavePeriod(ii),waveDepth(ii),waveH(ii),...
+                               waveDir(ii),gammaBr);
         waveH_Br(ii) = wavestruct.breaking_height;
         waveDepth_Br(ii) = wavestruct.breaking_depth;
         waveDir_Br(ii) = wavestruct.breaking_angle;
     end
 end
+
+waveH_Br
+waveDir_Br
 
 %% Determine wave-breaking regime
 
@@ -75,14 +85,20 @@ R(waveH_Br>gammaBr*depthChan) = 2; % Set to 2 if saturated
 
 %% Compute sea-level tilt
 
-% Initialize with bar-break value
-D = 1/16*gammaBr^2.*(cosd(abs(waveDir_Br)).^2+1/2).*(waveH_Br/gammaBr-depthBar); 
+% Initialize with bar-break value,
+% If waves break on the bar but not in the channel:
+D = 1/16*gammaBr^2.*(cosd(abs(waveDir_Br)).^2+1/2).*...
+    (waveH_Br/gammaBr-depthBar); 
 
-% Set to zero if shore-break
+% Set to zero if shore-break,
+% No sea-level difference if waves break onshore of bathy variability:
 D(R==0) = 0;
 
-% Set to saturated value if saturated
-D(R==2) = 1/16*gammaBr^2.*(cosd(abs(waveDir_Br(R==2))).^2+1/2).*(depthChan(R==2)-depthBar(R==2)); 
+% Set to saturated value if saturated,
+% If waves break in channel and on bar (offshore of bathy variability),
+% the sea level difference are limited by the water depths
+D(R==2) = 1/16*gammaBr^2.*(cosd(abs(waveDir_Br(R==2))).^2+1/2).*...
+          (depthChan(R==2)-depthBar(R==2)); 
 
 %% Compute alongshore flow
 
@@ -95,23 +111,33 @@ else
 dragC = vAlong(:,1);
 bSlope = vAlong(:,2);
     
-% Initialize with maximum alongshore flow for waves breaking on the bar
-V = dragC.^(-1/2)*sqrt(5)/4*(gammaBr)^(3/4)*bSlope.^(1/2)*(gammaBr*depthBar/sqrt(2)).^(1/2).*sind(abs(waveDir_Br)).^(1/2).*sign(sind(waveDir_Br));
+% Initialize with maximum alongshore flow for waves breaking on the bar,
+% Alongshore flow speed near the bar crest is limited by depth on bar:
+V = dragC.^(-1/2)*sqrt(5)/4*(gammaBr)^(3/4)*bSlope.^(1/2)*...
+    (g*gammaBr*depthBar/sqrt(2)).^(1/2).*...
+    sind(abs(waveDir_Br)).^(1/2).*sign(sind(waveDir_Br)); 
 
 % For shore-break cases, fill in value based on wave height
-V(R==0) = dragC.^(-1/2)*sqrt(5)/4*(gammaBr)^(3/4)*bSlope.^(1/2)*(waveH_Br/sqrt(2)).^(1/2).*sind(abs(waveDir_Br)).^(1/2).*sign(sind(waveDir_Br));
+V(R==0) = dragC.^(-1/2)*sqrt(5)/4*(gammaBr)^(3/4)*bSlope.^(1/2)*...
+          (g*waveH_Br(R==0)/sqrt(2)).^(1/2).*...
+          sind(abs(waveDir_Br(R==0))).^(1/2).*sign(sind(waveDir_Br(R==0)));
 
+% Option to use value based on wave height for all regimes (uncomment if desired)
+% V = dragC.^(-1/2)*sqrt(5)/4*(gammaBr)^(3/4)*bSlope.^(1/2)*...
+%           (g*waveH_Br/sqrt(2)).^(1/2).*...
+%           sind(abs(waveDir_Br)).^(1/2).*sign(sind(waveDir_Br));
+      
 end
 
 %% Compute alongshore flow suppression factor F
 
 F = ((1+vAdjust^2.*abs(V).^2./(2*g*D)).^(1/2)-vAdjust*abs(V)./sqrt(2*g*D));
-F(D==0) = NaN; % set to NaN if D=0
+F(D==0) = NaN; % set to NaN if D = 0
 
 %% Compute U
 
-U = sqrt(2*g*D).*F;
-U(isnan(F)) = sqrt(2*g*D(isnan(F)));
+U = ampCoeff*sqrt(2*g*D).*F;
+U(isnan(F)) = ampCoeff*sqrt(2*g*D(isnan(F))); % Cases with D = 0
 
 %% Assign to output structure
 
@@ -121,120 +147,69 @@ Ustruct.DeltaEta = D;
 Ustruct.VAlong = V;
 Ustruct.Factor = F;
 
+Ustruct.Inputs.waveH=waveH;
+Ustruct.Inputs.waveDir=waveDir;
+Ustruct.Inputs.wavePeriod=wavePeriod;
+Ustruct.Inputs.waveDepth=waveDepth;
+Ustruct.Inputs.depthVar=depthVar;
+Ustruct.Inputs.zBar=zBar;
+Ustruct.Inputs.tidalElev=gammaBr;
+Ustruct.Inputs.vAlong=vAlong;
+Ustruct.Inputs.vAdjust=vAdjust;
+Ustruct.Inputs.ampCoeff=ampCoeff;
+
 end
 
 %--------------------------------------------------------------------------
 
 function wave = waveshoal(T, h0, H0, theta0, gamma)
 
-% Find offshore group speed, phase speed, wavelength
-cg0 = find_cg(T,h0);
-c0 = find_c(T,h0);
-L0 = find_L0(T);
+% Constants
+g=9.8; % m/s^2
 
-% Find approx water depth at breaking,
-% shoal waves on finer depth grid near this value
-hBr_approx = round(10*gamma*H0*1.5)/10;
-hlist = [h0:-.2:hBr_approx (hBr_approx+0.02):-0.02:0]';
+% Find a water depth near but offshore of breaking,
+% shoal waves on finer depth grid onshore of this depth
+hBr_approx = round(10*H0/gamma*2)/10;
+h = [h0:-.2:hBr_approx (hBr_approx-0.02):-0.02:0]';
 
-% Calculate L, H, c, cg, n:
+% Calculate wavelengths in deep water at depths h
 
-L = find_L(T,hlist);
-c = find_c(T,hlist);
-cg = find_cg(T,hlist);
-n = find_n(T,hlist);
+% Deep water wavelength:
+Ldeep = g*T.^2/(2*pi); 
+
+% Wavelength, Ole Madsen approx:
+L = Ldeep.*(1-exp(-(2.*pi.*h./Ldeep).^1.25)).^0.4;
+
+% Calculate group and phase speeds at depths h
+c = L./T; % Phase speed
+k = 2.*pi./L; % Wavenumber
+cg = (L./(2.*T)).*(1+2.*(k).*h./sinh(2.*(k).*h)); % Group velocity
+
+% Calculate group and phase speeds at depth h0
+c0 = c(1); % Phase speed at depth h0
+cg0 = cg(1); % Phase speed at depth h0
+
+% Compute wave height and angle at depths h
 theta = asind(c./c0.*sind(theta0));
-H = find_H(H0,cg0,cg,theta0,theta);
+H = H0*sqrt(cg0./cg).*sqrt(cosd(abs(theta0))./cosd(abs(theta)));
 
 % Calculate breaking variables
-breaking_index = abs(H./hlist-gamma)==min(abs(H./hlist-gamma));
-breaking_depth = hlist(breaking_index);
+breaking_index = abs(H./h-gamma)==min(abs(H./h-gamma));
+breaking_depth = h(breaking_index);
 breaking_height = H(breaking_index);
 breaking_angle = theta(breaking_index);
 
 % Store variables
-wave.h = hlist;
+wave.h = h;
 wave.L = L;
-wave.L0 = L0;
+wave.Ldeep = Ldeep;
 wave.H = H;
 wave.c = c;
 wave.cg = cg;
-wave.n = n;
 wave.theta = theta;
 wave.breaking_depth = breaking_depth;
 wave.breaking_height = breaking_height;
 wave.breaking_angle = breaking_angle;
 
 end
-
-%--------------------------------------------------------------------------
-
-function c = find_c(T, h)
-% FIND_C computs c, the phase speed
-% Syntax: c=find_c(T,h)
-% Inputs: T - period (s), h - depth (m) 
-
-L = find_L(T, h);
-
-c = L./T;
-
-end
-
-%--------------------------------------------------------------------------
-
-function cg = find_cg(T, h)
-% FIND_CG computs cg, the group velocity
-% Syntax: cg=find_cg(T,h)
-% Inputs: T - period (s), h - depth (m) 
-
-L = find_L(T, h);
-k = 2.*pi./L;
-
-cg = (L./(2.*T)).*(1+2.*(k).*h./sinh(2.*(k).*h));
-
-end
-
-%--------------------------------------------------------------------------
-
-function L0 = find_L0(T)
-% FIND_L0 computes L0, the offshore wavelength
-% Syntax: L0 = find_L0(T)
-% Inputs: T - period (s)
-
-g = 9.81;
-L0 = g*T.^2/(2*pi);
-
-end
-
-%--------------------------------------------------------------------------
-
-function L = find_L(T, h)
-% FIND_L computes L, the wavelength
-% Syntax: L0 = find_L0(T)
-% Inputs: T - period (s), h - depth (m)
-
-L0 = find_L0(T);
-% Approximate formula, Ole Madsen, MIT Coastal Engineering Course
-L = L0.*(1-exp(-(2.*pi.*h./L0).^1.25)).^0.4;
-
-% Alternative is to solve iteratively, but this is accurate enough
-% for most purposes.
-
-end
-
-%--------------------------------------------------------------------------
-
-function n = find_n(T, h)
-% FIND_N computes N, the ratio of the group and phase speeds
-% Syntax: n = find_n(T,h)
-% Inputs: T - period (s), h - depth (m)
-
-L = find_L(T,h);
-k = 2*pi*L.^-1;
-
-n = 1/2*(1+2*k.*h./(sinh(2*k.*h)));
-
-end
-
-%--------------------------------------------------------------------------
 
