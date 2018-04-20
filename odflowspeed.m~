@@ -2,8 +2,13 @@ function Ustruct = odflowspeed(waveH, waveDir, wavePeriod, waveDepth,...
                                depthVar, zBar, tidalElev, gammaBr,...
                                vAlong, vAdjust, ampCoeff)
 % ODFLOWSPEED computes parameterized offshore-directed flow speed.
+<<<<<<< HEAD
+%  This function computes the parameterized maximum offshore-directed
+%  flow speed (Moulton et al., 2016) resulting from waves incident on non-
+=======
 %  This function computes the parameterized the maximum offshore-directed
 %  flow speed (Moulton et al., 2017) resulting from waves incident on non-
+>>>>>>> 4587499469670e75c387dae10c085233f7c0a88f
 %  uniform bathymetry. It also returns the wave-breaking regime, sea-level
 %  difference, alongshore flow speed, and suppression factor.
 %
@@ -39,8 +44,12 @@ function Ustruct = odflowspeed(waveH, waveDir, wavePeriod, waveDepth,...
 %     DeltaEta - Alongshore sea-level difference
 %     VAlong - Alongshore flow speed
 %     Factor - Factor accounting for suppression of U by V, between 0 and 1
+<<<<<<< HEAD
+%         (FV in Moulton et al., 2016)
 %     Inputs - All input fields
+=======
 %         (FV in Moulton et al., 2017)
+>>>>>>> 4587499469670e75c387dae10c085233f7c0a88f
 %
 %  Subroutines: WAVESHOAL
 %
@@ -73,6 +82,9 @@ for ii = 1:length(waveH)
         waveDir_Br(ii) = wavestruct.breaking_angle;
     end
 end
+
+waveH_Br
+waveDir_Br
 
 %% Determine wave-breaking regime
 
