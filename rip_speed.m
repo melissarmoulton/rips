@@ -1,7 +1,7 @@
 function Ustruct = odflowspeed(waveH, waveDir, wavePeriod, waveDepth,...
                                depthVar, zBar, tidalElev, gammaBr,...
                                vAlong, vAdjust, ampCoeff)
-% ODFLOWSPEED computes parameterized offshore-directed flow speed.
+% RIP_SPEED computes parameterized offshore-directed flow speed.
 %  This function computes the parameterized the maximum offshore-directed
 %  flow speed (Moulton et al., 2017) resulting from waves incident on non-
 %  uniform bathymetry. It also returns the wave-breaking regime, sea-level
@@ -44,7 +44,7 @@ function Ustruct = odflowspeed(waveH, waveDir, wavePeriod, waveDepth,...
 %
 %  Subroutines: WAVESHOAL
 %
-% Melissa Moulton, Last updated: April 19, 2018
+% Melissa Moulton
 
 %% Constants
 
